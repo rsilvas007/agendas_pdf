@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Google Sans', 'Google Sans Text', Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+}
+
+.google-shadow-sm {
+  box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+}
+
+.google-shadow-md {
+  box-shadow: 0 1px 3px 0 rgba(60, 64, 67, 0.3), 0 4px 8px 3px rgba(60, 64, 67, 0.15);
+}
+
+.google-shadow-lg {
+  box-shadow: 0 8px 10px 1px rgba(60, 64, 67, 0.14), 0 3px 14px 2px rgba(60, 64, 67, 0.12), 0 5px 5px -3px rgba(60, 64, 67, 0.2);
+}
+
