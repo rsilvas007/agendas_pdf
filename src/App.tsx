@@ -1,229 +1,274 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import { X } from 'lucide-react';
+import { ActionBar } from './components/ActionBar';
+import { EventList, type RowStatus } from './components/EventList';
+import { LiveAgenda } from './components/LiveAgenda';
+import { PdfInput, type Source } from './components/PdfInput';
+import { SourceText } from './components/SourceText';
+import { TopBar } from './components/TopBar';
+import { REPO_URL } from './config';
+import { SAMPLE_TEXT, parseEvents } from './core/parser.js';
+import { useGoogle } from './hooks/useGoogle';
+import { defaultTimeZone, plural } from './lib/format';
+import { buildIcs, downloadText, eventKey, listCalendars, listEvents, sendEvents } from './services/google';
+import type { ParsedEvent } from './types';
 
-import React, { useState, useEffect } from 'react';
-import { Header } from './components/Header';
-import { FileUpload } from './components/FileUpload';
-import { TextVisualizer } from './components/TextVisualizer';
-import { EventCards } from './components/EventCards';
-import { GasFilesView } from './components/GasFilesView';
-import { TutorialView } from './components/TutorialView';
-import { StitchImportModal } from './components/StitchImportModal';
-import { ParsedEvent } from './types';
-import { parseEventsFromText, SAMPLE_TEST_TEXT } from './parser';
-import { initAuth, googleSignIn, logout } from './services/googleAuth';
-import { User } from 'firebase/auth';
-import { Sparkles, Calendar, CheckCircle2 } from 'lucide-react';
+const AppsScriptView = lazy(() => import('./components/AppsScriptView').then((m) => ({ default: m.AppsScriptView })));
+
+type Theme = 'light' | 'dark';
+type Notice = { kind: 'ok' | 'error'; text: string; link?: string } | null;
+
+const TZ_KEY = 'pdfagenda.fuso';
+const THEME_KEY = 'pdfagenda.tema';
+
+function readLocal(key: string) {
+  try {
+    return localStorage.getItem(key) || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeLocal(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* sem armazenamento */
+  }
+}
+
+function useHashRoute() {
+  const [hash, setHash] = useState(window.location.hash);
+  useEffect(() => {
+    const on = () => {
+      setHash(window.location.hash);
+      window.scrollTo(0, 0);
+    };
+    window.addEventListener('hashchange', on);
+    return () => window.removeEventListener('hashchange', on);
+  }, []);
+  return hash;
+}
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<'app' | 'code' | 'tutorial'>('app');
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
-  const [rawText, setRawText] = useState<string>('');
-  const [filename, setFilename] = useState<string>('');
-  const [events, setEvents] = useState<ParsedEvent[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
-  const [isStitchModalOpen, setIsStitchModalOpen] = useState<boolean>(false);
-  const [customStitchSnippet, setCustomStitchSnippet] = useState<string | null>(null);
+  const route = useHashRoute();
+  const [theme, setTheme] = useState<Theme>(() => (document.documentElement.getAttribute('data-theme') as Theme) || 'light');
+  const [text, setText] = useState(SAMPLE_TEXT);
+  const [source, setSource] = useState<Source | null>({ name: 'Exemplo', pages: 1, sample: true, pasted: false });
+  const [events, setEvents] = useState<ParsedEvent[]>(() => parseEvents(SAMPLE_TEXT));
+  const [timeZone, setTimeZone] = useState(() => readLocal(TZ_KEY) || defaultTimeZone());
+  const [results, setResults] = useState<Map<string, RowStatus>>(new Map());
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [notice, setNotice] = useState<Notice>(null);
 
-  // Auth state
-  const [user, setUser] = useState<User | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
+  const google = useGoogle(events, timeZone);
 
-  // Initialize auth listener
   useEffect(() => {
-    const unsubscribe = initAuth(
-      (currentUser, token) => {
-        setUser(currentUser);
-        setAccessToken(token);
-      },
-      () => {
-        setUser(null);
-        setAccessToken(null);
-      }
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    if (google.error) {
+      setNotice({ kind: 'error', text: google.error });
+      google.setError('');
+    }
+  }, [google.error, google.setError]);
+
+  const statusOf = useCallback(
+    (ev: ParsedEvent): RowStatus | null => results.get(ev.id) || (google.existingKeys.has(eventKey(ev)) ? { kind: 'exists' } : null),
+    [results, google.existingKeys]
+  );
+
+  const pending = useMemo(
+    () => events.filter((e) => e.selected && e.date && !['created', 'exists'].includes(statusOf(e)?.kind || '')),
+    [events, statusOf]
+  );
+  const selectedCount = events.filter((e) => e.selected).length;
+
+  function loadText(newText: string, src: Source) {
+    setText(newText);
+    setSource(src);
+    setEvents(parseEvents(newText));
+    setResults(new Map());
+    setNotice(null);
+  }
+
+  function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    writeLocal(THEME_KEY, next);
+  }
+
+  function changeTimeZone(tz: string) {
+    setTimeZone(tz);
+    writeLocal(TZ_KEY, tz);
+  }
+
+  // Precisa começar direto no clique: se a conexão tiver expirado, a janela do
+  // Google abre na hora (o navegador bloqueia janelas abertas depois).
+  function handleSend() {
+    if (!pending.length) return;
+    setNotice(null);
+    google
+      .ensureSession()
+      .then(async (session) => {
+        const calendarId =
+          google.calendarId || (await listCalendars(session.token)).find((c) => c.primary)?.id || 'primary';
+        const dates = pending.map((e) => e.date).sort();
+        const lastDates = pending.map((e) => e.endDate || e.date).sort();
+        const existing = await listEvents(session.token, calendarId, dates[0], lastDates[lastDates.length - 1], timeZone);
+        setProgress({ done: 0, total: pending.length });
+        const res = await sendEvents(
+          session.token,
+          calendarId,
+          timeZone,
+          pending,
+          new Set(existing.map((e) => eventKey(e))),
+          (done, total) => setProgress({ done, total })
+        );
+        setResults((prev) => {
+          const next = new Map(prev);
+          res.created.forEach((c) => next.set(c.id, { kind: 'created', link: c.link }));
+          res.skipped.forEach((c) => next.set(c.id, { kind: 'exists' }));
+          res.failed.forEach((c) => next.set(c.id, { kind: 'failed', message: c.message }));
+          return next;
+        });
+        const parts: string[] = [];
+        if (res.created.length) parts.push(`${plural(res.created.length, 'compromisso criado', 'compromissos criados')} no Google Agenda.`);
+        if (res.skipped.length) parts.push(`${plural(res.skipped.length, 'já estava', 'já estavam')} na agenda e ${res.skipped.length === 1 ? 'foi pulado' : 'foram pulados'}.`);
+        if (res.failed.length) parts.push(`${plural(res.failed.length, 'não pôde ser criado', 'não puderam ser criados')}: ${res.failed[0].message}`);
+        const first = res.created[0]?.date;
+        setNotice({
+          kind: res.failed.length && !res.created.length ? 'error' : 'ok',
+          text: parts.join(' ') || 'Nada para enviar.',
+          link: first ? `https://calendar.google.com/calendar/r/week/${first.replace(/-/g, '/')}` : undefined,
+        });
+        google.refresh();
+      })
+      .catch((err) => {
+        google.handleError(err);
+      })
+      .finally(() => setProgress(null));
+  }
+
+  function handleIcs() {
+    downloadText('compromissos.ics', buildIcs(events, timeZone), 'text/calendar;charset=utf-8');
+  }
+
+  if (route === '#apps-script') {
+    return (
+      <div className="min-h-screen bg-paper">
+        <TopBar
+          status={google.status}
+          account={google.account}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          onConnect={google.connect}
+          onDisconnect={google.disconnect}
+        />
+        <Suspense fallback={<p className="mx-auto max-w-[780px] px-4 py-8 text-muted">Carregando…</p>}>
+          <AppsScriptView />
+        </Suspense>
+      </div>
     );
-    return () => unsubscribe();
-  }, []);
+  }
 
-  const handleLogin = async () => {
-    setIsLoggingIn(true);
-    try {
-      const res = await googleSignIn();
-      if (res) {
-        setUser(res.user);
-        setAccessToken(res.accessToken);
-      }
-    } catch (err: any) {
-      console.error('Falha ao autenticar:', err);
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    await logout();
-    setUser(null);
-    setAccessToken(null);
-  };
-
-  // Sync dark mode class on <html>
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [isDarkMode]);
-
-  // Handle new text parsed
-  const handleTextLoaded = (text: string, name?: string) => {
-    setRawText(text);
-    if (name) setFilename(name);
-    const parsed = parseEventsFromText(text);
-    setEvents(parsed);
-    setCurrentStep(2);
-  };
-
-  // Pre-populate with sample events on initial mount
-  useEffect(() => {
-    if (!rawText) {
-      handleTextLoaded(SAMPLE_TEST_TEXT, 'exemplo_5_eventos.pdf');
-    }
-  }, []);
-
-  const handleApplyStitchHtml = (html: string) => {
-    setCustomStitchSnippet(html);
-    const parsed = parseEventsFromText(html);
-    if (parsed.length > 0) {
-      setEvents(parsed);
-      setRawText(html);
-      setFilename('layout_stitch_importado.html');
-    }
-  };
+  const calendarName =
+    google.calendars.find((c) => c.id === google.calendarId)?.primary ? 'Principal' : google.calendars.find((c) => c.id === google.calendarId)?.summary || '';
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] dark:bg-stone-950 text-stone-900 dark:text-stone-100 transition-colors flex flex-col font-sans">
-      {/* Header and Step Indicator */}
-      <Header
-        currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
-        currentStep={currentStep}
-        isDarkMode={isDarkMode}
-        setIsDarkMode={setIsDarkMode}
-        onOpenStitchModal={() => setIsStitchModalOpen(true)}
-        user={user}
-        onLogin={handleLogin}
-        onLogout={handleLogout}
-        isLoggingIn={isLoggingIn}
+    <div className="min-h-screen bg-paper">
+      <TopBar
+        status={google.status}
+        account={google.account}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onConnect={google.connect}
+        onDisconnect={google.disconnect}
       />
 
-      {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6">
-        {currentTab === 'app' && (
-          <div className="space-y-6">
-            {/* Direct Google Calendar Connection Banner */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200/90 dark:border-stone-800 google-shadow-sm text-xs">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-9 h-9 rounded-2xl flex items-center justify-center font-bold ${
-                    user
-                      ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400'
-                      : 'bg-blue-50 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400'
-                  }`}
-                >
-                  {user ? <CheckCircle2 className="w-5 h-5" /> : <Calendar className="w-5 h-5" />}
-                </div>
-                <div>
-                  <span className="font-bold text-stone-900 dark:text-white flex items-center gap-2">
-                    {user
-                      ? `Conectado ao Google Agenda de ${user.displayName || user.email}`
-                      : 'Conecte seu Google Agenda para gravação automática direta'}
-                  </span>
-                  <span className="text-stone-500 dark:text-stone-400 text-[11px]">
-                    {user
-                      ? 'Os eventos são gravados diretamente no seu Google Calendar via API oficial, com checagem anti-duplicados.'
-                      : 'Clique em "Conectar Google Agenda" no topo ou no botão de gravação para autorizar o acesso.'}
-                  </span>
-                </div>
-              </div>
+      <main className="mx-auto flex max-w-[780px] flex-col gap-9 px-4 pb-44 pt-8 sm:pt-10">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-[28px] font-semibold leading-tight tracking-tight sm:text-[34px]">Do PDF para a sua agenda</h1>
+          <p className="max-w-[60ch] text-[17px] text-muted">
+            Envie um cronograma, edital ou calendário em PDF. O app encontra as datas e os horários, você confere e cria tudo no Google
+            Agenda de uma vez.
+          </p>
+        </div>
 
-              {!user && (
-                <button
-                  onClick={handleLogin}
-                  disabled={isLoggingIn}
-                  className="px-4 py-2 rounded-2xl bg-[#1a73e8] hover:bg-blue-700 text-white font-bold text-xs google-shadow-sm transition flex items-center gap-2 self-start sm:self-auto cursor-pointer"
-                >
-                  <span>{isLoggingIn ? 'Conectando...' : 'Conectar Agora'}</span>
-                </button>
+        <PdfInput source={source} found={events.length} onText={loadText} />
+
+        {notice && (
+          <div
+            role={notice.kind === 'error' ? 'alert' : 'status'}
+            className={`flex items-start gap-3 rounded-[var(--radius-ui)] px-4 py-3 text-[15px] ${
+              notice.kind === 'error' ? 'bg-danger-soft text-danger' : 'bg-accent-soft text-ink'
+            }`}
+          >
+            <p className="flex-1">
+              {notice.text}{' '}
+              {notice.link && (
+                <a href={notice.link} target="_blank" rel="noreferrer" className="font-medium text-accent underline underline-offset-4">
+                  Abrir Google Agenda
+                </a>
               )}
-            </div>
-
-            {/* If user imported raw Stitch HTML snippet */}
-            {customStitchSnippet && (
-              <div className="p-4 rounded-3xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-900 dark:text-emerald-200 flex items-center justify-between">
-                <span>Layout personalizado importado do Google Stitch com sucesso!</span>
-                <button
-                  onClick={() => setCustomStitchSnippet(null)}
-                  className="text-emerald-700 dark:text-emerald-300 font-bold hover:underline"
-                >
-                  Restaurar padrão
-                </button>
-              </div>
-            )}
-
-            {/* Two-column layout on Desktop, Single column on Mobile */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-              {/* Left Column: Upload + Highlighted Text */}
-              <div className="lg:col-span-5 space-y-4">
-                <FileUpload
-                  onTextLoaded={handleTextLoaded}
-                  isLoading={isLoading}
-                  setIsLoading={setIsLoading}
-                />
-
-                <TextVisualizer
-                  rawText={rawText}
-                  filename={filename}
-                  events={events}
-                />
-              </div>
-
-              {/* Right Column: Editable Event Cards + Direct Calendar API Integration */}
-              <div className="lg:col-span-7">
-                <EventCards
-                  events={events}
-                  setEvents={setEvents}
-                  onAdvanceToStep3={() => setCurrentStep(3)}
-                  user={user}
-                  accessToken={accessToken}
-                  onRequireLogin={handleLogin}
-                />
-              </div>
-            </div>
+            </p>
+            <button type="button" onClick={() => setNotice(null)} aria-label="Fechar aviso" className="-mr-1 grid h-8 w-8 place-items-center rounded-[var(--radius-ui)] hover:bg-paper/60">
+              <X className="h-4 w-4" />
+            </button>
           </div>
         )}
 
-        {currentTab === 'code' && <GasFilesView />}
+        {source?.sample && (
+          <p className="-mb-4 text-sm text-muted">
+            <mark className="marca">Exemplo</mark> Isto é um cronograma de exemplo. Envie o seu PDF para ver as suas datas.
+          </p>
+        )}
 
-        {currentTab === 'tutorial' && <TutorialView />}
+        <SourceText text={text} label={source?.pasted ? 'Texto colado' : 'Texto lido do PDF'} />
+
+        <EventList events={events} setEvents={setEvents} statusOf={statusOf} />
+
+        <LiveAgenda
+          status={google.status}
+          calendarName={calendarName}
+          events={google.upcoming}
+          updatedAt={google.updatedAt}
+          loading={google.loadingAgenda}
+          onRefresh={google.refresh}
+          onConnect={google.connect}
+        />
+
+        <footer className="flex flex-col gap-2 border-t border-line pt-5 text-sm text-muted">
+          <p className="max-w-[64ch]">
+            O PDF é lido no seu navegador. Só os compromissos que você enviar vão para a sua conta Google, e o app não guarda nada em
+            servidor.
+          </p>
+          <p className="flex flex-wrap gap-x-4 gap-y-1">
+            <a href="#apps-script" className="underline-offset-4 hover:text-ink hover:underline">
+              Versão Apps Script
+            </a>
+            <a href={REPO_URL} target="_blank" rel="noreferrer" className="underline-offset-4 hover:text-ink hover:underline">
+              Código no GitHub
+            </a>
+          </p>
+        </footer>
       </main>
 
-      {/* Stitch Import Modal */}
-      <StitchImportModal
-        isOpen={isStitchModalOpen}
-        onClose={() => setIsStitchModalOpen(false)}
-        onApplyCustomHtml={handleApplyStitchHtml}
+      <ActionBar
+        status={google.status}
+        toSend={pending.length}
+        selected={selectedCount}
+        calendars={google.calendars}
+        calendarId={google.calendarId}
+        onCalendar={google.setCalendarId}
+        timeZone={timeZone}
+        onTimeZone={changeTimeZone}
+        progress={progress}
+        sample={!!source?.sample}
+        onSend={handleSend}
+        onDownloadIcs={handleIcs}
       />
-
-      {/* Footer */}
-      <footer className="border-t border-stone-200 dark:border-stone-800 bg-white/60 dark:bg-stone-900/60 py-4 px-6 text-center text-xs text-stone-500 dark:text-stone-400">
-        <p>
-          PDF para Google Agenda • Conexão direta com Google Calendar API v3 • Também disponível para Google Apps Script
-        </p>
-      </footer>
     </div>
   );
 }
