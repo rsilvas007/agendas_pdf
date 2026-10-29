@@ -6,13 +6,16 @@ import { LiveAgenda } from './components/LiveAgenda';
 import { PdfInput, type Source } from './components/PdfInput';
 import { SourceText } from './components/SourceText';
 import { TopBar } from './components/TopBar';
+import { Folhinha } from './components/Folhinha';
+import { feriado, proximoFeriado } from './lib/feriados';
 import { REPO_URL } from './config';
 import { SAMPLE_TEXT, parseEvents } from './core/parser.js';
 import { useGoogle } from './hooks/useGoogle';
-import { defaultTimeZone, plural } from './lib/format';
+import { dayMonth, defaultTimeZone, plural, todayIso } from './lib/format';
 import { buildIcs, downloadText, eventKey, listCalendars, listEvents, sendEvents } from './services/google';
 import type { ParsedEvent } from './types';
 
+const GuideView = lazy(() => import('./components/GuideView').then((m) => ({ default: m.GuideView })));
 const AppsScriptView = lazy(() => import('./components/AppsScriptView').then((m) => ({ default: m.AppsScriptView })));
 
 type Theme = 'light' | 'dark';
@@ -155,7 +158,7 @@ export default function App() {
     downloadText('compromissos.ics', buildIcs(events, timeZone), 'text/calendar;charset=utf-8');
   }
 
-  if (route === '#apps-script') {
+  if (route === '#apps-script' || route === '#instalar') {
     return (
       <div className="min-h-screen bg-paper">
         <TopBar
@@ -167,7 +170,7 @@ export default function App() {
           onDisconnect={google.disconnect}
         />
         <Suspense fallback={<p className="mx-auto max-w-[780px] px-4 py-8 text-muted">Carregando…</p>}>
-          <AppsScriptView />
+          {route === '#instalar' ? <GuideView /> : <AppsScriptView />}
         </Suspense>
       </div>
     );
@@ -188,12 +191,17 @@ export default function App() {
       />
 
       <main className="mx-auto flex max-w-[780px] flex-col gap-9 px-4 pb-44 pt-8 sm:pt-10">
-        <div className="flex flex-col gap-2">
-          <h1 className="text-[28px] font-semibold leading-tight tracking-tight sm:text-[34px]">Do PDF para a sua agenda</h1>
-          <p className="max-w-[60ch] text-[17px] text-muted">
-            Envie um cronograma, edital ou calendário em PDF. O app encontra as datas e os horários, você confere e cria tudo no Google
-            Agenda de uma vez.
-          </p>
+        <div className="flex items-start justify-between gap-5 sm:gap-8">
+          <div className="flex min-w-0 flex-col gap-3 pt-1">
+            <h1 className="text-[30px] font-extrabold leading-[1.05] tracking-[-0.02em] sm:text-[44px]">
+              Do PDF para a agenda, sem copiar data por data.
+            </h1>
+            <p className="max-w-[54ch] text-[17px] leading-relaxed text-muted">
+              Envie um cronograma, edital ou calendário escolar. O app lê datas como 05/11, 18 de novembro e 3 a 7 de dezembro, você
+              confere e cria tudo no Google Agenda de uma vez.
+            </p>
+          </div>
+          <Hoje />
         </div>
 
         <PdfInput source={source} found={events.length} onText={loadText} />
@@ -202,7 +210,7 @@ export default function App() {
           <div
             role={notice.kind === 'error' ? 'alert' : 'status'}
             className={`flex items-start gap-3 rounded-[var(--radius-ui)] px-4 py-3 text-[15px] ${
-              notice.kind === 'error' ? 'bg-danger-soft text-danger' : 'bg-accent-soft text-ink'
+              notice.kind === 'error' ? 'bg-danger-soft text-danger' : 'bg-ok-soft text-ink'
             }`}
           >
             <p className="flex-1">
@@ -245,6 +253,9 @@ export default function App() {
             servidor.
           </p>
           <p className="flex flex-wrap gap-x-4 gap-y-1">
+            <a href="#instalar" className="font-semibold text-ink underline-offset-4 hover:underline">
+              Ter o meu próprio app
+            </a>
             <a href="#apps-script" className="underline-offset-4 hover:text-ink hover:underline">
               Versão Apps Script
             </a>
@@ -270,5 +281,26 @@ export default function App() {
         onDownloadIcs={handleIcs}
       />
     </div>
+  );
+}
+
+// Folhinha de hoje, com o feriado do dia ou o próximo feriado nacional.
+function Hoje() {
+  const hoje = todayIso();
+  const deHoje = feriado(hoje);
+  const proximo = proximoFeriado(hoje);
+  return (
+    <figure className="hidden shrink-0 flex-col items-center gap-2 pt-1 min-[520px]:flex">
+      <Folhinha data={hoje} tamanho="g" />
+      <figcaption className="max-w-[168px] text-center text-[13px] leading-snug text-muted">
+        {deHoje ? (
+          <span className="text-red">Hoje é {deHoje.nome}</span>
+        ) : proximo ? (
+          <>
+            Próximo feriado: <span className="text-ink">{dayMonth(proximo.data)}</span>, {proximo.feriado.nome}
+          </>
+        ) : null}
+      </figcaption>
+    </figure>
   );
 }

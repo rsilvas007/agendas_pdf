@@ -85,7 +85,7 @@ export function PdfInput({ source, found, onText }: Props) {
             role="button"
             tabIndex={0}
             onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && inputRef.current?.click()}
-            className="min-h-9 cursor-pointer rounded-[var(--radius-ui)] px-3 py-1.5 text-sm font-medium text-accent hover:bg-accent-soft"
+            className="min-h-9 cursor-pointer rounded-[var(--radius-ui)] border border-line-strong px-3 py-1.5 text-sm font-semibold text-ink hover:bg-sunk"
           >
             Trocar arquivo
           </label>
@@ -104,16 +104,16 @@ export function PdfInput({ source, found, onText }: Props) {
             handleFile(e.dataTransfer.files?.[0]);
           }}
           className={`flex cursor-pointer flex-col items-start gap-1 rounded-[var(--radius-ui)] border-[1.5px] border-dashed px-5 py-6 transition-colors sm:flex-row sm:items-center sm:gap-4 ${
-            dragging ? 'border-accent bg-accent-soft' : 'border-line-strong hover:border-accent hover:bg-sunk'
+            dragging ? 'border-red bg-red-soft' : 'border-line-strong hover:border-ink hover:bg-sunk'
           }`}
         >
           {busy ? (
             <Loader2 className="h-6 w-6 shrink-0 animate-spin text-accent" aria-hidden="true" />
           ) : (
-            <Upload className="h-6 w-6 shrink-0 text-accent" aria-hidden="true" />
+            <Upload className="h-6 w-6 shrink-0 text-red" aria-hidden="true" />
           )}
           <span className="flex flex-col">
-            <span className="font-medium">{busy || (dragging ? 'Pode soltar' : 'Solte o PDF aqui ou clique para escolher')}</span>
+            <span className="text-[17px] font-semibold">{busy || (dragging ? 'Pode soltar' : 'Solte o PDF aqui ou clique para escolher')}</span>
             <span className="text-sm text-muted">O arquivo é lido no seu navegador. Ele não é enviado para nenhum servidor.</span>
           </span>
         </label>

@@ -104,6 +104,14 @@ export function forgetSession(alsoAccount = false) {
 // Depois da primeira autorização, o Google não mostra a tela de permissão de
 // novo: a janela abre e fecha sozinha.
 export function requestAccess(hint?: string): Promise<Session> {
+  if (!GOOGLE_CLIENT_ID) {
+    return Promise.reject(
+      new AuthError(
+        'no_client',
+        'Esta cópia do app ainda não tem um ID do Google. Siga a parte 3 e a parte 4 do guia "Ter o meu próprio app", no rodapé da página.'
+      )
+    );
+  }
   const oauth2 = window.google?.accounts?.oauth2;
   if (!oauth2) {
     loadGoogleLogin().catch(() => undefined);

@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react';
 import { safeEnd } from '../core/parser.js';
-import { dayMonth, plural, timeRange, todayIso, weekday, yearOf } from '../lib/format';
+import { dayMonth, plural, timeRange, todayIso, yearOf } from '../lib/format';
+import { feriado } from '../lib/feriados';
+import { Folhinha } from './Folhinha';
 import type { ParsedEvent } from '../types';
 
 export interface RowStatus {
@@ -69,7 +71,7 @@ export function EventList({ events, setEvents, statusOf }: Props) {
   return (
     <section aria-labelledby="titulo-compromissos" className="flex flex-col gap-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="titulo-compromissos" className="text-lg font-semibold tracking-tight">
+        <h2 id="titulo-compromissos" className="text-[22px] font-bold tracking-tight">
           Compromissos encontrados
         </h2>
         {events.length > 0 && (
@@ -98,14 +100,14 @@ export function EventList({ events, setEvents, statusOf }: Props) {
             const year = yearOf(ev.date);
             return (
               <li key={ev.id} className={ev.selected ? '' : 'opacity-55'}>
-                <div className="flex items-start gap-3 py-3">
+                <div className="flex items-start gap-3 py-3.5">
                   <input
                     id={`marcar-${ev.id}`}
                     type="checkbox"
                     checked={ev.selected}
                     onChange={(e) => update(ev.id, { selected: e.target.checked })}
                     aria-label={`Incluir ${ev.title || 'compromisso'}`}
-                    className="mt-1.5 h-[18px] w-[18px] shrink-0 accent-[var(--accent)]"
+                    className="mt-[22px] h-[18px] w-[18px] shrink-0 accent-[var(--accent)]"
                   />
                   <button
                     type="button"
@@ -113,24 +115,23 @@ export function EventList({ events, setEvents, statusOf }: Props) {
                     className="flex min-w-0 flex-1 items-start gap-3 text-left sm:gap-4"
                     aria-expanded={isEditing}
                   >
-                    <span className="w-[4.5rem] shrink-0 font-mono text-sm leading-6 tnum">
-                      <span className="block font-medium text-ink">{dayMonth(ev.date)}</span>
-                      <span className="block text-xs text-muted">
-                        {weekday(ev.date)}
-                        {year && year !== thisYear ? ` ${year}` : ''}
-                      </span>
-                    </span>
+                    <Folhinha data={ev.date} mostrarAno={!!year && year !== thisYear} />
                     <span className="min-w-0 flex-1">
-                      <span className={`block font-medium leading-6 ${ev.title ? '' : 'text-muted'}`}>{ev.title || 'Sem título'}</span>
-                      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
-                        <span className="font-mono text-[13px] tnum sm:hidden">{timeRange(ev.startTime, ev.endTime)}</span>
+                      <span className={`block text-[17px] font-semibold leading-6 ${ev.title ? '' : 'text-muted'}`}>{ev.title || 'Sem título'}</span>
+                      <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1 pt-0.5 text-sm text-muted">
+                        <span className="font-medium text-ink tnum sm:hidden">{timeRange(ev.startTime, ev.endTime)}</span>
+                        {feriado(ev.date) && (
+                          <span className="text-red">
+                            {feriado(ev.date)!.facultativo ? 'Ponto facultativo' : 'Feriado'}: {feriado(ev.date)!.nome}
+                          </span>
+                        )}
                         {ev.endDate && <span>até {dayMonth(ev.endDate)}</span>}
                         {ev.location && <span className="truncate">{ev.location}</span>}
                         {status?.kind === 'exists' && (
-                          <span className="rounded bg-warn-soft px-1.5 py-px text-xs font-medium text-warn">Já está na agenda</span>
+                          <span className="carimbo text-ok">já na agenda</span>
                         )}
                         {status?.kind === 'created' && (
-                          <span className="rounded bg-accent-soft px-1.5 py-px text-xs font-medium text-accent">Criado</span>
+                          <span className="carimbo text-ok">criado ✓</span>
                         )}
                         {status?.kind === 'failed' && (
                           <span className="rounded bg-danger-soft px-1.5 py-px text-xs font-medium text-danger" title={status.message}>
@@ -139,7 +140,7 @@ export function EventList({ events, setEvents, statusOf }: Props) {
                         )}
                       </span>
                     </span>
-                    <span className="hidden shrink-0 font-mono text-sm leading-6 text-ink tnum sm:block">
+                    <span className="hidden shrink-0 pt-px text-[15px] font-medium leading-6 text-ink tnum sm:block">
                       {timeRange(ev.startTime, ev.endTime)}
                     </span>
                   </button>
@@ -150,7 +151,7 @@ export function EventList({ events, setEvents, statusOf }: Props) {
                         target="_blank"
                         rel="noreferrer"
                         aria-label="Abrir no Google Agenda"
-                        className="grid h-9 w-9 place-items-center rounded-[var(--radius-ui)] text-accent hover:bg-accent-soft"
+                        className="grid h-9 w-9 place-items-center rounded-[var(--radius-ui)] text-ok hover:bg-ok-soft"
                       >
                         <ExternalLink className="h-4 w-4" />
                       </a>
@@ -167,7 +168,7 @@ export function EventList({ events, setEvents, statusOf }: Props) {
                 </div>
 
                 {isEditing && (
-                  <div className="mb-3 ml-[30px] grid grid-cols-2 gap-3 rounded-[var(--radius-ui)] bg-sunk p-3 sm:grid-cols-4">
+                  <div className="mb-4 ml-[30px] grid grid-cols-2 gap-3 rounded-[var(--radius-ui)] bg-sunk p-3 sm:grid-cols-4">
                     <Field label="Título" className="col-span-2 sm:col-span-4">
                       <input
                         id={`titulo-${ev.id}`}
@@ -252,7 +253,7 @@ export function EventList({ events, setEvents, statusOf }: Props) {
       )}
 
       <div>
-        <button type="button" onClick={addManual} className="flex min-h-9 items-center gap-1.5 rounded-[var(--radius-ui)] px-2 text-sm font-medium text-accent hover:bg-accent-soft">
+        <button type="button" onClick={addManual} className="flex min-h-9 items-center gap-1.5 rounded-[var(--radius-ui)] px-2 text-[15px] font-semibold text-ink hover:bg-sunk">
           <Plus className="h-4 w-4" aria-hidden="true" />
           Adicionar compromisso
         </button>

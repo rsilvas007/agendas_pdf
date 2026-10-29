@@ -31,9 +31,9 @@ export function SourceText({ text, label }: Props) {
           id="titulo-texto"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className="flex min-h-9 items-center gap-1.5 text-left font-semibold"
+          className="flex min-h-9 items-center gap-1.5 text-left text-[22px] font-bold tracking-tight"
         >
-          <ChevronDown className={`h-4 w-4 transition-transform ${open ? '' : '-rotate-90'}`} aria-hidden="true" />
+          <ChevronDown className={`h-5 w-5 transition-transform ${open ? '' : '-rotate-90'}`} aria-hidden="true" />
           {label}
         </button>
         {open && (
