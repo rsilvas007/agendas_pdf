@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import type { ConnectionStatus } from '../hooks/useGoogle';
 import { agoText, longDay, todayIso } from '../lib/format';
+import { feriado } from '../lib/feriados';
+import { diaVermelho } from './Folhinha';
 import type { AgendaEvent } from '../types';
 
 interface Props {
@@ -36,7 +38,7 @@ export function LiveAgenda({ status, calendarName, events, updatedAt, loading, o
   return (
     <section aria-labelledby="titulo-agenda" className="flex flex-col gap-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="titulo-agenda" className="text-lg font-semibold tracking-tight">
+        <h2 id="titulo-agenda" className="text-[22px] font-bold tracking-tight">
           Sua agenda nos próximos 30 dias
         </h2>
         {status === 'on' && (
@@ -78,11 +80,14 @@ export function LiveAgenda({ status, calendarName, events, updatedAt, loading, o
         <ol className="divide-y divide-line border-y border-line">
           {days.map(([day, list]) => (
             <li key={day} className="grid grid-cols-1 gap-1 py-2.5 sm:grid-cols-[8.5rem_1fr] sm:gap-4">
-              <span className="text-sm font-medium text-ink">{longDay(day)}</span>
+              <span className={`text-[15px] font-semibold ${diaVermelho(day) ? 'text-red' : 'text-ink'}`}>
+                {longDay(day)}
+                {feriado(day) && <span className="block text-xs font-normal">{feriado(day)!.nome}</span>}
+              </span>
               <ul className="flex min-w-0 flex-col gap-0.5">
                 {list.map((e) => (
-                  <li key={e.id} className="flex min-w-0 items-baseline gap-3 text-sm">
-                    <span className="w-[6.5rem] shrink-0 font-mono text-[13px] text-muted tnum">
+                  <li key={e.id} className="flex min-w-0 items-baseline gap-3 text-[15px]">
+                    <span className="w-[6.5rem] shrink-0 text-muted tnum">
                       {e.startTime ? `${e.startTime}–${e.endTime}` : 'dia inteiro'}
                     </span>
                     <a href={e.link} target="_blank" rel="noreferrer" className="min-w-0 truncate text-ink hover:underline">

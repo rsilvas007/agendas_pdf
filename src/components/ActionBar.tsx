@@ -73,7 +73,7 @@ export function ActionBar(p: Props) {
           id="enviar"
           onClick={p.onSend}
           disabled={disabled}
-          className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-ui)] bg-accent px-4 font-semibold text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+          className="flex min-h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-ui)] bg-accent px-5 text-[16px] font-bold text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
         >
           {p.progress && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
           {label}

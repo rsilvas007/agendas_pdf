@@ -4,23 +4,29 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 /*
-  Direção: ferramenta de trabalho limpa. Uma coluna, linhas em vez de cards,
-  um único verde de destaque e o marca-texto amarelo como assinatura (as datas
-  encontradas no PDF aparecem grifadas, como um professor faria no papel).
+  Direção: a folhinha de parede brasileira (calendário de destacar de padaria e
+  farmácia), impressa em preto e vermelho, com domingos e feriados em vermelho.
+  As datas viram folhinhas; o texto do PDF ganha marca-texto; o que já está na
+  agenda ganha carimbo. Fonte: Gabarito (Naipe Foundry, Rio de Janeiro).
 */
 :root {
   --paper: #ffffff;
-  --sunk: #f6f7f7;
-  --ink: #111827;
-  --muted: #6b7280;
-  --line: #e5e7eb;
-  --line-strong: #d1d5db;
-  --accent: #0a7357;
-  --accent-hover: #085f48;
+  --sunk: #f4f4f1;
+  --ink: #17171a;
+  --muted: #66666e;
+  --line: #e4e4e0;
+  --line-strong: #cfcfca;
+  --accent: #17171a;
+  --accent-hover: #000000;
   --accent-ink: #ffffff;
-  --accent-soft: #e8f3ef;
-  --mark: #ffe36b;
-  --mark-ink: #1f2937;
+  --accent-soft: #efefec;
+  --red: #d2261b;
+  --red-ink: #ffffff;
+  --red-soft: #fcebe8;
+  --ok: #0e7a4f;
+  --ok-soft: #e6f4ed;
+  --mark: #ffe45c;
+  --mark-ink: #17171a;
   --warn: #8a5300;
   --warn-soft: #fff3d6;
   --danger: #b42318;
@@ -29,18 +35,23 @@
 }
 
 [data-theme="dark"] {
-  --paper: #0f1513;
-  --sunk: #151d1a;
-  --ink: #e8edeb;
-  --muted: #95a39d;
-  --line: #24302b;
-  --line-strong: #33423c;
-  --accent: #3cc493;
-  --accent-hover: #5dd4a8;
-  --accent-ink: #06261b;
-  --accent-soft: #15302a;
-  --mark: #6b5a10;
-  --mark-ink: #fff4c4;
+  --paper: #131315;
+  --sunk: #1b1b1e;
+  --ink: #ededea;
+  --muted: #9c9ca3;
+  --line: #2a2a2e;
+  --line-strong: #3b3b40;
+  --accent: #ededea;
+  --accent-hover: #ffffff;
+  --accent-ink: #131315;
+  --accent-soft: #26262a;
+  --red: #ff5b4d;
+  --red-ink: #1a0503;
+  --red-soft: #3a1916;
+  --ok: #4cc38a;
+  --ok-soft: #12291f;
+  --mark: #6e5c0c;
+  --mark-ink: #fff3c0;
   --warn: #f2c26b;
   --warn-soft: #33290f;
   --danger: #ff8a7a;
@@ -59,13 +70,18 @@
   --color-accent-hover: var(--accent-hover);
   --color-accent-ink: var(--accent-ink);
   --color-accent-soft: var(--accent-soft);
+  --color-red: var(--red);
+  --color-red-ink: var(--red-ink);
+  --color-red-soft: var(--red-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
   --color-mark: var(--mark);
   --color-mark-ink: var(--mark-ink);
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
-  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Gabarito", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --radius-ui: 6px;
 }
@@ -123,4 +139,27 @@
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Folhinha: picote no topo, como o bloco de destacar. */
+.picote {
+  background-image: radial-gradient(circle at 50% 50%, var(--paper) 2.2px, transparent 2.6px);
+  background-size: 11px 8px;
+  background-repeat: repeat-x;
+  background-position: 3px 50%;
+}
+
+/* Carimbo de "já está na agenda". */
+.carimbo {
+  display: inline-block;
+  transform: rotate(-4deg);
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+  padding: 0 5px;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  line-height: 16px;
+  text-transform: uppercase;
+  opacity: 0.92;
 }
