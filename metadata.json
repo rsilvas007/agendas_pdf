@@ -1,6 +1,5 @@
 {
-  "name": "PDF para Google Agenda",
-  "description": "Extraia compromissos e datas de arquivos PDF e adicione direto no Google Agenda, com gerador de código para Google Apps Script gratuito.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "name": "PDF para Agenda",
+  "description": "Lê um PDF, encontra datas e horários e cria os compromissos direto no Google Agenda. Também tem uma versão para Google Apps Script.",
+  "requestFramePermissions": []
 }

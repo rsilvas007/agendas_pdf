@@ -3,6 +3,11 @@
  * Completely free, runs inside the user's personal Google Account without external servers or paid APIs.
  */
 
+import PARSER_SOURCE from './core/parser.js?raw';
+
+// O leitor de datas do app web, sem os "export", para rodar dentro do Index.html.
+const GAS_PARSER = PARSER_SOURCE.replace(/^export /gm, '');
+
 export const CODE_GS = `/**
  * PDF para Google Agenda - Google Apps Script
  * Executado como: Eu (sua conta Google)
@@ -159,26 +164,31 @@ function createCalendarEvents(events, calendarId, timeZone) {
 
         var createdEvent;
 
+        var lastDay = eventDate;
+        if (ev.endDate) {
+          var ep = ev.endDate.split('-');
+          lastDay = new Date(parseInt(ep[0], 10), parseInt(ep[1], 10) - 1, parseInt(ep[2], 10));
+        }
+
         if (ev.isAllDay || !ev.startTime) {
-          createdEvent = calendar.createAllDayEvent(ev.title, eventDate, options);
+          if (ev.endDate) {
+            var afterLast = new Date(lastDay.getFullYear(), lastDay.getMonth(), lastDay.getDate() + 1);
+            createdEvent = calendar.createAllDayEvent(ev.title, eventDate, afterLast, options);
+          } else {
+            createdEvent = calendar.createAllDayEvent(ev.title, eventDate, options);
+          }
         } else {
-          // Parse start and end hours
           var startParts = ev.startTime.split(':');
-          var startHour = parseInt(startParts[0], 10);
-          var startMin = parseInt(startParts[1], 10);
-
-          var endHour = startHour + 1;
-          var endMin = startMin;
-
+          var startDateTime = new Date(year, month, day, parseInt(startParts[0], 10), parseInt(startParts[1], 10), 0);
+          var endDateTime;
           if (ev.endTime) {
             var endParts = ev.endTime.split(':');
-            endHour = parseInt(endParts[0], 10);
-            endMin = parseInt(endParts[1], 10);
+            endDateTime = new Date(lastDay.getFullYear(), lastDay.getMonth(), lastDay.getDate(), parseInt(endParts[0], 10), parseInt(endParts[1], 10), 0);
           }
-
-          var startDateTime = new Date(year, month, day, startHour, startMin, 0);
-          var endDateTime = new Date(year, month, day, endHour, endMin, 0);
-
+          // Sem fim, ou fim antes do início: 1 hora depois (pode passar da meia-noite).
+          if (!endDateTime || endDateTime <= startDateTime) {
+            endDateTime = new Date(startDateTime.getTime() + 60 * 60 * 1000);
+          }
           createdEvent = calendar.createEvent(ev.title, startDateTime, endDateTime, options);
         }
 
@@ -451,183 +461,8 @@ export const INDEX_HTML_GAS = `<!DOCTYPE html>
       calendars: []
     };
 
-    // Portuguese month mapping
-    var MONTHS_MAP = {
-      'janeiro': 1, 'jan': 1,
-      'fevereiro': 2, 'fev': 2,
-      'março': 3, 'marco': 3, 'mar': 3,
-      'abril': 4, 'abr': 4,
-      'maio': 5, 'mai': 5,
-      'junho': 6, 'jun': 6,
-      'julho': 7, 'jul': 7,
-      'agosto': 8, 'ago': 8,
-      'setembro': 9, 'set': 9,
-      'outubro': 10, 'out': 10,
-      'novembro': 11, 'nov': 11,
-      'dezembro': 12, 'dez': 12
-    };
-
-    var WEEKDAYS = [
-      'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado', 'domingo',
-      'segunda', 'terca', 'terça', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo',
-      'seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'sáb', 'dom'
-    ];
-
-    function pad2(n) { return n < 10 ? '0' + n : '' + n; }
-
-    function isValidDate(y, m, d) {
-      if (m < 1 || m > 12) return false;
-      var days = [31, (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-      return d >= 1 && d <= days[m - 1];
-    }
-
-    function resolveYear(m, d) {
-      var now = new Date();
-      var currentYear = now.getFullYear();
-      var testDate = new Date(currentYear, m - 1, d);
-      var diffDays = (now.getTime() - testDate.getTime()) / (1000 * 60 * 60 * 24);
-      return diffDays > 60 ? currentYear + 1 : currentYear;
-    }
-
-    function extractDates(line) {
-      var matches = [];
-      // 1. ISO format
-      var isoRegex = /\\b(\\d{4})-(0[1-9]|1[0-2])-([0-2][0-9]|3[0-1])\\b/g;
-      var m;
-      while ((m = isoRegex.exec(line)) !== null) {
-        var y = parseInt(m[1], 10), mo = parseInt(m[2], 10), d = parseInt(m[3], 10);
-        if (isValidDate(y, mo, d)) matches.push({ raw: m[0], year: y, month: mo, day: d, index: m.index, length: m[0].length });
-      }
-
-      // 2. Format DD/MM/YYYY, DD.MM.YYYY, DD/MM, 5/11
-      var numRegex = /\\b([0-3]?\\d)[\\/\\.]([0-1]?\\d)(?:[\\/\\.](\\d{2,4}))?\\b/g;
-      while ((m = numRegex.exec(line)) !== null) {
-        if (matches.some(function(item) { return m.index >= item.index && m.index < item.index + item.length; })) continue;
-        var d = parseInt(m[1], 10), mo = parseInt(m[2], 10);
-        var y = m[3] ? parseInt(m[3], 10) : null;
-        if (y !== null) { if (y < 100) y += 2000; } else { y = resolveYear(mo, d); }
-        if (isValidDate(y, mo, d)) matches.push({ raw: m[0], year: y, month: mo, day: d, index: m.index, length: m[0].length });
-      }
-
-      // 3. Written dates in Portuguese
-      var monthNames = Object.keys(MONTHS_MAP).join('|');
-      var writtenRegex = new RegExp('\\\\b([0-3]?\\\\d)(?:[º°o])?\\\\s+(?:de\\\\s+)?(' + monthNames + ')(?:\\\\s+(?:de\\\\s+)?(\\\\d{2,4}))?\\\\b', 'gi');
-      while ((m = writtenRegex.exec(line)) !== null) {
-        if (matches.some(function(item) { return m.index >= item.index && m.index < item.index + item.length; })) continue;
-        var d = parseInt(m[1], 10);
-        var mo = MONTHS_MAP[m[2].toLowerCase()];
-        var y = m[3] ? parseInt(m[3], 10) : null;
-        if (y !== null) { if (y < 100) y += 2000; } else { y = resolveYear(mo, d); }
-        if (mo && isValidDate(y, mo, d)) matches.push({ raw: m[0], year: y, month: mo, day: d, index: m.index, length: m[0].length });
-      }
-
-      return matches.sort(function(a, b) { return a.index - b.index; });
-    }
-
-    function extractTimes(line) {
-      var matches = [];
-      var intervalRegex = /(?:(?:das|de)\\s+)?([0-2]?\\d)(?:(?:h|:)([0-5]\\d)?(?:h)?)?\\s*(?:às|as|a|até|ate|-|—|–)\\s*([0-2]?\\d)(?:(?:h|:)([0-5]\\d)?(?:h)?)?/gi;
-      var m;
-      while ((m = intervalRegex.exec(line)) !== null) {
-        var h1 = parseInt(m[1], 10), h2 = parseInt(m[3], 10);
-        if (h1 >= 0 && h1 <= 23 && h2 >= 0 && h2 <= 23 && !m[0].includes('/') && !m[0].includes('.')) {
-          var start = pad2(h1) + ':' + (m[2] ? pad2(parseInt(m[2], 10)) : '00');
-          var end = pad2(h2) + ':' + (m[4] ? pad2(parseInt(m[4], 10)) : '00');
-          matches.push({ raw: m[0], start: start, end: end });
-        }
-      }
-
-      if (matches.length === 0) {
-        var singleRegex = /(?:(?:às|as|à|a)\\s+)?\\b([0-2]?\\d)(?:h([0-5]\\d)?|:([0-5]\\d))\\b|(?:(?:às|as)\\s+)([0-2]?\\d)h?\\b/gi;
-        while ((m = singleRegex.exec(line)) !== null) {
-          var h = m[1] || m[5];
-          var min = m[2] || m[3] || '00';
-          if (h) {
-            var numH = parseInt(h, 10);
-            if (numH >= 0 && numH <= 23) {
-              var start = pad2(numH) + ':' + pad2(parseInt(min, 10));
-              var endH = (numH + 1) % 24;
-              var end = pad2(endH) + ':' + pad2(parseInt(min, 10));
-              matches.push({ raw: m[0], start: start, end: end });
-            }
-          }
-        }
-      }
-      return matches;
-    }
-
-    function extractLocation(line, nextLine) {
-      var locMatch = line.match(/(?:Local|Onde|Endere[çc]o)\\s*:\\s*([^–—\\n]+)/i);
-      if (locMatch) {
-        return { location: locMatch[1].trim(), cleanedLine: line.replace(locMatch[0], ' ') };
-      }
-      if (nextLine) {
-        var nextMatch = nextLine.match(/^\\s*(?:Local|Onde|Endere[çc]o)\\s*:\\s*(.+)$/i);
-        if (nextMatch) return { location: nextMatch[1].trim(), cleanedLine: line };
-      }
-      return { location: '', cleanedLine: line };
-    }
-
-    function cleanTitle(line, dateRaws, timeRaws) {
-      var text = line;
-      dateRaws.forEach(function(d) { text = text.split(d).join(' '); });
-      timeRaws.forEach(function(t) { text = text.split(t).join(' '); });
-      WEEKDAYS.forEach(function(w) {
-        text = text.replace(new RegExp('\\\\b' + w + '\\\\b', 'gi'), ' ');
-      });
-      ['às', 'as', 'das', 'da', 'de', 'do', 'dos', 'até', 'ate', 'dia', 'no', 'na', 'em', 'local', 'onde'].forEach(function(p) {
-        text = text.replace(new RegExp('\\\\b' + p + '\\\\b', 'gi'), ' ');
-      });
-      text = text.replace(/[-—–:,;•·|]/g, ' ').replace(/\\s+/g, ' ').trim();
-      return text;
-    }
-
-    function parseEvents(text) {
-      var lines = text.split(/\\r?\\n/).map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
-      var events = [];
-      var prevLine = '';
-
-      for (var i = 0; i < lines.length; i++) {
-        var line = lines[i];
-        var nextLine = i + 1 < lines.length ? lines[i + 1] : undefined;
-
-        var locResult = extractLocation(line, nextLine);
-        var dates = extractDates(locResult.cleanedLine);
-
-        if (dates.length === 0) {
-          prevLine = line;
-          continue;
-        }
-
-        var times = extractTimes(locResult.cleanedLine);
-        var timeMatch = times.length > 0 ? times[0] : null;
-
-        var dateRaws = dates.map(function(d) { return d.raw; });
-        var timeRaws = times.map(function(t) { return t.raw; });
-
-        var title = cleanTitle(locResult.cleanedLine, dateRaws, timeRaws);
-        if (!title || title.length < 2) title = prevLine || 'Compromisso';
-
-        dates.forEach(function(d, idx) {
-          events.push({
-            id: 'ev_' + Date.now() + '_' + i + '_' + idx,
-            selected: true,
-            title: title,
-            date: d.year + '-' + pad2(d.month) + '-' + pad2(d.day),
-            startTime: timeMatch ? timeMatch.start : '',
-            endTime: timeMatch ? timeMatch.end : '',
-            isAllDay: !timeMatch,
-            location: locResult.location,
-            originalLine: line,
-            matchedDate: d.raw,
-            matchedTime: timeMatch ? timeMatch.raw : ''
-          });
-        });
-
-        prevLine = '';
-      }
-      return events;
-    }
+    // Leitor de datas: cópia de src/core/parser.js (mesmo código do app web)
+${GAS_PARSER}
 
     // Render Preview with highlights
     function renderPreview(text, events) {
@@ -1044,68 +879,3 @@ export const INDEX_HTML_GAS = `<!DOCTYPE html>
 </body>
 </html>`;
 
-export const TUTORIAL_MARKDOWN = `### Guia Passo a Passo para Iniciantes: Publicar seu App da Web no Google Apps Script
-
-Siga estes 6 passos simples para ter a aplicação rodando 100% de graça dentro da sua própria conta Google:
-
-#### Passo 1: Criar o Projeto no Google Apps Script
-1. Acesse **[script.google.com](https://script.google.com)** no seu navegador.
-2. Certifique-se de estar conectado na conta Google onde você usa o Google Agenda.
-3. Clique no botão **"Novo projeto"** (canto superior esquerdo).
-4. No topo, onde diz *"Projeto sem título"*, clique e mude o nome para **PDF para Google Agenda**.
-
----
-
-#### Passo 2: Configurar o arquivo \`Code.gs\`
-1. No menu lateral esquerdo, clique no arquivo existente chamado **\`Code.gs\`**.
-2. Apague qualquer código existente (como \`function myFunction() {}\`).
-3. Copie o código da aba **Code.gs** desta aplicação e cole no editor.
-4. Pressione **Ctrl + S** (ou clique no ícone de disquete) para salvar.
-
----
-
-#### Passo 3: Criar o arquivo \`Index.html\`
-1. No menu lateral esquerdo, clique no botão **\`+\`** (Adicionar um arquivo) ao lado de *Arquivos*.
-2. Escolha a opção **HTML**.
-3. Digite exatamente o nome: **\`Index\`** (o Google colocará \`.html\` automaticamente).
-4. Apague o código padrão que aparece no arquivo criado.
-5. Copie todo o conteúdo da aba **Index.html** desta aplicação e cole dentro dele.
-6. Salve o arquivo (**Ctrl + S**).
-
----
-
-#### Passo 4: Ativar o Serviço Avançado do Drive (para OCR de PDFs escaneados)
-1. No menu lateral esquerdo do Apps Script, clique no botão **\`+\`** ao lado da seção **Serviços**.
-2. Na lista que abrir, procure por **Drive API**.
-3. Selecione a versão **v2** e confirme o identificador como **\`Drive\`**.
-4. Clique em **Adicionar**.
-
-*(Opcional: Caso deseje editar o manifesto \`appsscript.json\`, vá em Configurações do Projeto ⚙️ -> Marque "Mostrar arquivo de manifesto 'appsscript.json' no editor" e cole o JSON fornecido).*
-
----
-
-#### Passo 5: Implantar como App da Web
-1. No canto superior direito da tela do Apps Script, clique no botão azul **Implantar** -> **Nova implantação**.
-2. Na janela que abrir, clique no ícone de engrenagem ⚙️ (Selecionar tipo) e escolha **App da Web**.
-3. Preencha as opções exatamente assim:
-   - **Descrição**: *PDF para Google Agenda v1*
-   - **Executar como**: **Eu (seu email)**
-   - **Quem tem acesso**: **Apenas eu** (ou *Qualquer pessoa com uma Conta do Google*, se quiser usar com familiares)
-4. Clique no botão **Implantar**.
-5. O Google solicitará que você **Autorize o acesso** (necessário para que seu script leia seus PDFs e crie eventos na sua agenda):
-   - Clique em **Revisar permissões**.
-   - Escolha sua conta Google.
-   - Uma tela de aviso *"O Google não verificou este app"* pode aparecer (isso é normal porque é um script pessoal que você mesmo acabou de criar).
-   - Clique em **Avançado** (canto inferior esquerdo).
-   - Clique no link **Ir para PDF para Google Agenda (não seguro)**.
-   - Clique em **Permitir**.
-
----
-
-#### Passo 6: Salvar o Link e Criar Atalho no Celular
-1. Copie o link final gerado (termina com \`/exec\`).
-2. Abra esse link no navegador do seu celular (Chrome no Android ou Safari no iPhone).
-3. **No Android**: toque nos 3 pontinhos do Chrome -> **"Adicionar à tela inicial"** ou **"Instalar aplicativo"**.
-4. **No iPhone**: toque no botão de Compartilhar do Safari -> **"Adicionar à Tela de Início"**.
-5. Pronto! Agora você tem um ícone na tela do celular que abre o app direto, lê qualquer PDF e adiciona seus compromissos no Google Agenda sem gastar nada!
-`;
