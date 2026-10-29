@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Trash2 } from 'lucide-react';
+import { ConfirmBar } from './EventList';
 import type { ConnectionStatus } from '../hooks/useGoogle';
 import { agoText, longDay, todayIso } from '../lib/format';
 import { feriado } from '../lib/feriados';
@@ -14,11 +15,14 @@ interface Props {
   loading: boolean;
   onRefresh: () => void;
   onConnect: () => void;
+  onDelete: (eventIds: string[]) => void;
+  deleting: boolean;
 }
 
 // A agenda do Google, ao vivo: próximos 30 dias, atualizada a cada minuto.
-export function LiveAgenda({ status, calendarName, events, updatedAt, loading, onRefresh, onConnect }: Props) {
+export function LiveAgenda({ status, calendarName, events, updatedAt, loading, onRefresh, onConnect, onDelete, deleting }: Props) {
   const [now, setNow] = useState(Date.now());
+  const [confirming, setConfirming] = useState<string | null>(null);
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 10_000);
     return () => window.clearInterval(t);
@@ -86,13 +90,36 @@ export function LiveAgenda({ status, calendarName, events, updatedAt, loading, o
               </span>
               <ul className="flex min-w-0 flex-col gap-0.5">
                 {list.map((e) => (
-                  <li key={e.id} className="flex min-w-0 items-baseline gap-3 text-[15px]">
-                    <span className="w-[6.5rem] shrink-0 text-muted tnum">
-                      {e.startTime ? `${e.startTime}–${e.endTime}` : 'dia inteiro'}
-                    </span>
-                    <a href={e.link} target="_blank" rel="noreferrer" className="min-w-0 truncate text-ink hover:underline">
-                      {e.fromPdf ? <mark className="marca">{e.title}</mark> : e.title}
-                    </a>
+                  <li key={e.id} className="flex min-w-0 flex-col gap-1.5">
+                    <div className="flex min-w-0 items-baseline gap-3 text-[15px]">
+                      <span className="w-[6.5rem] shrink-0 text-muted tnum">{e.startTime ? `${e.startTime}–${e.endTime}` : 'dia inteiro'}</span>
+                      <a href={e.link} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-ink hover:underline">
+                        {e.fromPdf ? <mark className="marca">{e.title}</mark> : e.title}
+                      </a>
+                      {e.fromPdf && (
+                        <button
+                          type="button"
+                          onClick={() => setConfirming(confirming === e.id ? null : e.id)}
+                          aria-label={`Excluir ${e.title} do Google Agenda`}
+                          title="Excluir do Google Agenda"
+                          className="-my-2 grid h-8 w-8 shrink-0 place-items-center self-center rounded-[var(--radius-ui)] text-muted hover:bg-red-soft hover:text-red"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                    {confirming === e.id && (
+                      <ConfirmBar
+                        text={`Excluir "${e.title}" do seu Google Agenda?`}
+                        action="Excluir da agenda"
+                        busy={deleting}
+                        onConfirm={() => {
+                          onDelete([e.id]);
+                          setConfirming(null);
+                        }}
+                        onCancel={() => setConfirming(null)}
+                      />
+                    )}
                   </li>
                 ))}
               </ul>
@@ -102,7 +129,7 @@ export function LiveAgenda({ status, calendarName, events, updatedAt, loading, o
       )}
       {status === 'on' && events.some((e) => e.fromPdf) && (
         <p className="text-sm text-muted">
-          <mark className="marca">Grifados</mark> são os compromissos criados por este app.
+          <mark className="marca">Grifados</mark> são os compromissos criados por este app. Eles podem ser excluídos daqui.
         </p>
       )}
     </section>

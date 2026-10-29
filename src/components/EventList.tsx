@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ExternalLink, Loader2, Pencil, Plus, Trash2, Undo2, X } from 'lucide-react';
 import { safeEnd } from '../core/parser.js';
 import { dayMonth, plural, timeRange, todayIso, yearOf } from '../lib/format';
 import { feriado } from '../lib/feriados';
@@ -10,18 +10,29 @@ export interface RowStatus {
   kind: 'created' | 'exists' | 'failed';
   link?: string;
   message?: string;
+  eventId?: string;
+  at?: number;
 }
 
 interface Props {
   events: ParsedEvent[];
   setEvents: (fn: (prev: ParsedEvent[]) => ParsedEvent[]) => void;
   statusOf: (ev: ParsedEvent) => RowStatus | null;
+  onDelete: (eventIds: string[]) => void;
+  deleting: boolean;
 }
 
 let manualSeq = 0;
 
-export function EventList({ events, setEvents, statusOf }: Props) {
+export function EventList({ events, setEvents, statusOf, onDelete, deleting }: Props) {
   const [editing, setEditing] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const createdIds = events.map((e) => statusOf(e)).filter((st) => st?.kind === 'created' && st.eventId).map((st) => st!.eventId!);
+
+  function confirmDelete(ids: string[]) {
+    onDelete(ids);
+    setConfirming(null);
+  }
   const selected = events.filter((e) => e.selected).length;
   const allOn = events.length > 0 && selected === events.length;
   const thisYear = new Date().getFullYear();
@@ -88,6 +99,29 @@ export function EventList({ events, setEvents, statusOf }: Props) {
         )}
       </div>
 
+      {createdIds.length > 0 && confirming !== 'todos' && (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
+          <span>{plural(createdIds.length, 'compromisso criado', 'compromissos criados')} agora por este app.</span>
+          <button
+            type="button"
+            onClick={() => setConfirming('todos')}
+            className="flex min-h-9 items-center gap-1.5 rounded-[var(--radius-ui)] px-2 font-semibold text-red hover:bg-red-soft"
+          >
+            <Undo2 className="h-4 w-4" aria-hidden="true" />
+            Desfazer envio
+          </button>
+        </div>
+      )}
+      {confirming === 'todos' && (
+        <ConfirmBar
+          text={`Excluir do seu Google Agenda ${plural(createdIds.length, 'o compromisso criado', 'os compromissos criados')} agora?`}
+          action={`Excluir ${createdIds.length} da agenda`}
+          busy={deleting}
+          onConfirm={() => confirmDelete(createdIds)}
+          onCancel={() => setConfirming(null)}
+        />
+      )}
+
       {events.length === 0 ? (
         <div className="rounded-[var(--radius-ui)] border border-dashed border-line-strong px-4 py-6 text-sm text-muted">
           Nenhuma data foi encontrada neste texto. Confira o texto lido acima ou adicione o compromisso à mão.
@@ -145,7 +179,7 @@ export function EventList({ events, setEvents, statusOf }: Props) {
                     </span>
                   </button>
                   <div className="flex shrink-0 items-center">
-                    {status?.kind === 'created' && status.link && (
+                    {status?.link && (
                       <a
                         href={status.link}
                         target="_blank"
@@ -155,6 +189,17 @@ export function EventList({ events, setEvents, statusOf }: Props) {
                       >
                         <ExternalLink className="h-4 w-4" />
                       </a>
+                    )}
+                    {status?.eventId && (
+                      <button
+                        type="button"
+                        onClick={() => setConfirming(confirming === ev.id ? null : ev.id)}
+                        aria-label={`Excluir ${ev.title || 'compromisso'} do Google Agenda`}
+                        title="Excluir do Google Agenda"
+                        className="grid h-9 w-9 place-items-center rounded-[var(--radius-ui)] text-red hover:bg-red-soft"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     )}
                     <button
                       type="button"
@@ -166,6 +211,18 @@ export function EventList({ events, setEvents, statusOf }: Props) {
                     </button>
                   </div>
                 </div>
+
+                {confirming === ev.id && status?.eventId && (
+                  <div className="mb-3 ml-[30px]">
+                    <ConfirmBar
+                      text={`Excluir "${ev.title || 'compromisso'}" de ${dayMonth(ev.date)} do seu Google Agenda?`}
+                      action="Excluir da agenda"
+                      busy={deleting}
+                      onConfirm={() => confirmDelete([status.eventId!])}
+                      onCancel={() => setConfirming(null)}
+                    />
+                  </div>
+                )}
 
                 {isEditing && (
                   <div className="mb-4 ml-[30px] grid grid-cols-2 gap-3 rounded-[var(--radius-ui)] bg-sunk p-3 sm:grid-cols-4">
@@ -233,8 +290,8 @@ export function EventList({ events, setEvents, statusOf }: Props) {
                         onClick={() => setEvents((prev) => prev.filter((e) => e.id !== ev.id))}
                         className="flex min-h-9 items-center gap-1.5 rounded-[var(--radius-ui)] px-2 text-sm text-danger hover:bg-danger-soft"
                       >
-                        <Trash2 className="h-4 w-4" aria-hidden="true" />
-                        Remover
+                        <X className="h-4 w-4" aria-hidden="true" />
+                        Tirar da lista
                       </button>
                       <button
                         type="button"
@@ -280,3 +337,38 @@ function Field({ label, className = '', children }: { label: string; className?:
   );
 }
 
+
+export function ConfirmBar({
+  text,
+  action,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  text: string;
+  action: string;
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div role="alertdialog" aria-label={text} className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[var(--radius-ui)] border border-red/40 bg-red-soft px-3 py-2.5">
+      <p className="min-w-0 flex-1 text-[15px] text-ink">{text}</p>
+      <div className="flex gap-2">
+        <button type="button" onClick={onCancel} className="min-h-9 rounded-[var(--radius-ui)] px-3 text-sm font-medium text-ink hover:bg-paper/70">
+          Cancelar
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={busy}
+          autoFocus
+          className="flex min-h-9 items-center gap-1.5 rounded-[var(--radius-ui)] bg-red px-3 text-sm font-bold text-red-ink disabled:opacity-60"
+        >
+          {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+          {busy ? 'Excluindo…' : action}
+        </button>
+      </div>
+    </div>
+  );
+}
