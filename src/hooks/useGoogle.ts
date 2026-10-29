@@ -184,7 +184,22 @@ export function useGoogle(parsed: ParsedEvent[], timeZone: string) {
     }
   }, []);
 
-  const existingKeys = useMemo(() => new Set(agenda.map((e) => eventKey(e))), [agenda]);
+  // Evento da agenda com o mesmo título, dia e horário de cada compromisso.
+  const byKey = useMemo(() => {
+    const map = new Map<string, AgendaEvent>();
+    agenda.forEach((e) => {
+      const k = eventKey(e);
+      if (!map.has(k)) map.set(k, e);
+    });
+    return map;
+  }, [agenda]);
+  const existingKeys = useMemo(() => new Set(byKey.keys()), [byKey]);
+  const agendaIds = useMemo(() => new Set(agenda.map((e) => e.id)), [agenda]);
+
+  // Tira da lista na hora, sem esperar a próxima atualização.
+  const forget = useCallback((ids: string[]) => {
+    setAgenda((prev) => prev.filter((e) => !ids.includes(e.id)));
+  }, []);
 
   const upcoming = useMemo(() => {
     const start = today();
@@ -200,6 +215,9 @@ export function useGoogle(parsed: ParsedEvent[], timeZone: string) {
     setCalendarId,
     upcoming,
     existingKeys,
+    byKey,
+    agendaIds,
+    forget,
     updatedAt,
     loadingAgenda,
     error,

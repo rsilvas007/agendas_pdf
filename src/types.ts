@@ -32,7 +32,7 @@ export interface AgendaEvent {
 }
 
 export interface SendResult {
-  created: Array<{ id: string; title: string; date: string; link: string }>;
+  created: Array<{ id: string; eventId: string; title: string; date: string; link: string }>;
   skipped: Array<{ id: string; title: string; date: string }>;
   failed: Array<{ id: string; title: string; message: string }>;
 }

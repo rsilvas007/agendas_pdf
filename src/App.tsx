@@ -12,7 +12,7 @@ import { REPO_URL } from './config';
 import { SAMPLE_TEXT, parseEvents } from './core/parser.js';
 import { useGoogle } from './hooks/useGoogle';
 import { dayMonth, defaultTimeZone, plural, todayIso } from './lib/format';
-import { buildIcs, downloadText, eventKey, listCalendars, listEvents, sendEvents } from './services/google';
+import { buildIcs, deleteEvents, downloadText, eventKey, listCalendars, listEvents, sendEvents } from './services/google';
 import type { ParsedEvent } from './types';
 
 const GuideView = lazy(() => import('./components/GuideView').then((m) => ({ default: m.GuideView })));
@@ -62,6 +62,7 @@ export default function App() {
   const [timeZone, setTimeZone] = useState(() => readLocal(TZ_KEY) || defaultTimeZone());
   const [results, setResults] = useState<Map<string, RowStatus>>(new Map());
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
 
   const google = useGoogle(events, timeZone);
@@ -77,9 +78,20 @@ export default function App() {
     }
   }, [google.error, google.setError]);
 
+  // Situação de cada compromisso, sempre conferida com a agenda ao vivo: se
+  // ele foi apagado direto no Google Agenda, deixa de aparecer como criado.
   const statusOf = useCallback(
-    (ev: ParsedEvent): RowStatus | null => results.get(ev.id) || (google.existingKeys.has(eventKey(ev)) ? { kind: 'exists' } : null),
-    [results, google.existingKeys]
+    (ev: ParsedEvent): RowStatus | null => {
+      const r = results.get(ev.id);
+      if (r?.kind === 'failed') return r;
+      if (r?.kind === 'created') {
+        const sumiu = google.updatedAt && r.at && google.updatedAt > r.at && r.eventId && !google.agendaIds.has(r.eventId);
+        if (!sumiu) return r;
+      }
+      const match = google.byKey.get(eventKey(ev));
+      return match ? { kind: 'exists', eventId: match.id, link: match.link } : null;
+    },
+    [results, google.byKey, google.agendaIds, google.updatedAt]
   );
 
   const pending = useMemo(
@@ -131,8 +143,8 @@ export default function App() {
         );
         setResults((prev) => {
           const next = new Map(prev);
-          res.created.forEach((c) => next.set(c.id, { kind: 'created', link: c.link }));
-          res.skipped.forEach((c) => next.set(c.id, { kind: 'exists' }));
+          const at = Date.now();
+          res.created.forEach((c) => next.set(c.id, { kind: 'created', link: c.link, eventId: c.eventId, at }));
           res.failed.forEach((c) => next.set(c.id, { kind: 'failed', message: c.message }));
           return next;
         });
@@ -152,6 +164,37 @@ export default function App() {
         google.handleError(err);
       })
       .finally(() => setProgress(null));
+  }
+
+  // Exclui da agenda do Google. Também começa direto no clique.
+  function handleDelete(eventIds: string[]) {
+    const ids = [...new Set(eventIds.filter(Boolean))];
+    if (!ids.length) return;
+    setNotice(null);
+    setDeleting(true);
+    google
+      .ensureSession()
+      .then(async (session) => {
+        const calendarId = google.calendarId || 'primary';
+        const res = await deleteEvents(session.token, calendarId, ids);
+        google.forget(res.deleted);
+        setResults((prev) => {
+          const next = new Map(prev);
+          next.forEach((v, k) => {
+            if (v.eventId && res.deleted.includes(v.eventId)) next.delete(k);
+          });
+          return next;
+        });
+        setNotice({
+          kind: res.failed.length ? 'error' : 'ok',
+          text: res.failed.length
+            ? `${plural(res.deleted.length, 'excluído', 'excluídos')}; ${plural(res.failed.length, 'não pôde', 'não puderam')} ser excluído: ${res.failed[0].message}`
+            : `${plural(res.deleted.length, 'compromisso excluído', 'compromissos excluídos')} do Google Agenda.`,
+        });
+        google.refresh();
+      })
+      .catch((err) => google.handleError(err))
+      .finally(() => setDeleting(false));
   }
 
   function handleIcs() {
@@ -235,7 +278,7 @@ export default function App() {
 
         <SourceText text={text} label={source?.pasted ? 'Texto colado' : 'Texto lido do PDF'} />
 
-        <EventList events={events} setEvents={setEvents} statusOf={statusOf} />
+        <EventList events={events} setEvents={setEvents} statusOf={statusOf} onDelete={handleDelete} deleting={deleting} />
 
         <LiveAgenda
           status={google.status}
@@ -244,6 +287,8 @@ export default function App() {
           updatedAt={google.updatedAt}
           loading={google.loadingAgenda}
           onRefresh={google.refresh}
+          onDelete={handleDelete}
+          deleting={deleting}
           onConnect={google.connect}
         />
 

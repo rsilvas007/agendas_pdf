@@ -298,7 +298,7 @@ export async function sendEvents(
         body: JSON.stringify(buildBody(ev, timeZone)),
       });
       keys.add(key);
-      result.created.push({ id: ev.id, title: ev.title, date: ev.date, link: created.htmlLink });
+      result.created.push({ id: ev.id, eventId: created.id, title: ev.title, date: ev.date, link: created.htmlLink });
     } catch (err: any) {
       if (err instanceof AuthError) throw err;
       result.failed.push({ id: ev.id, title: ev.title, message: err?.message || 'Erro desconhecido' });
@@ -306,6 +306,25 @@ export async function sendEvents(
   }
   onProgress?.(todo.length, todo.length);
   return result;
+}
+
+// Exclui eventos da agenda. Evento que já não existe conta como excluído.
+export async function deleteEvents(token: string, calendarId: string, eventIds: string[]) {
+  const deleted: string[] = [];
+  const failed: Array<{ id: string; message: string }> = [];
+  for (const id of eventIds) {
+    const res = await fetch(`${API}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 401) {
+      forgetSession();
+      throw new AuthError('expired', 'A conexão com o Google expirou. Clique em reconectar.');
+    }
+    if (res.ok || res.status === 404 || res.status === 410) deleted.push(id);
+    else failed.push({ id, message: `O Google respondeu com erro ${res.status}.` });
+  }
+  return { deleted, failed };
 }
 
 /* ------------------------------------------------------------------ */
